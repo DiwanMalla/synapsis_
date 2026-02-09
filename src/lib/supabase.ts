@@ -4,10 +4,11 @@
 // - src/lib/supabase/server.ts (Server/Actions)
 
 export interface Note {
-  id: number; // Changed to number to match BigInt in Postgres
+  id: string; // UUID from Supabase
   content: string;
-  created_at: string;
+  created_at?: string; // Made optional to handle partial returns from RPC
   embedding: number[] | null;
+  similarity?: number; // Added for search results
 }
 
 export interface NoteInsert {

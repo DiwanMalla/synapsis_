@@ -99,3 +99,59 @@ export async function searchNotes(
     return { success: false, error: "Failed to search notes" };
   }
 }
+
+/**
+ * Update an existing note
+ */
+export async function updateNote(
+  id: string,
+  content: string,
+): Promise<{ success: boolean; note?: Note; error?: string }> {
+  try {
+    const supabase = await createClient();
+
+    // Generate new embedding for updated content
+    console.log("Generating new embedding for updated note...");
+    const embedding = await generateEmbedding(content);
+
+    const { data, error } = await supabase
+      .from("notes")
+      .update({ content, embedding })
+      .eq("id", id)
+      .select()
+      .single();
+
+    if (error) {
+      console.error("Error updating note:", error);
+      return { success: false, error: error.message };
+    }
+
+    return { success: true, note: data };
+  } catch (err) {
+    console.error("Unexpected error:", err);
+    return { success: false, error: "Failed to update note" };
+  }
+}
+
+/**
+ * Delete a note
+ */
+export async function deleteNote(
+  id: string,
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const supabase = await createClient();
+
+    const { error } = await supabase.from("notes").delete().eq("id", id);
+
+    if (error) {
+      console.error("Error deleting note:", error);
+      return { success: false, error: error.message };
+    }
+
+    return { success: true };
+  } catch (err) {
+    console.error("Unexpected error:", err);
+    return { success: false, error: "Failed to delete note" };
+  }
+}

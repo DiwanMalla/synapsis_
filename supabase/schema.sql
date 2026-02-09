@@ -21,6 +21,8 @@ CREATE POLICY "Allow all" ON notes
   WITH CHECK (true);
 
 -- Function for semantic search using cosine similarity
+DROP FUNCTION IF EXISTS match_notes;
+
 CREATE OR REPLACE FUNCTION match_notes(
   query_embedding VECTOR(768),
   match_threshold FLOAT,
@@ -33,19 +35,17 @@ RETURNS TABLE(
   embedding VECTOR(768),
   similarity FLOAT
 )
-LANGUAGE plpgsql
+LANGUAGE SQL
+STABLE
 AS $$
-BEGIN
-  RETURN QUERY
   SELECT
-    notes.id,
-    notes.content,
-    notes.created_at,
-    notes.embedding,
-    1 - (notes.embedding <=> query_embedding) AS similarity
+    notes.id::UUID,
+    notes.content::TEXT,
+    notes.created_at::TIMESTAMP WITH TIME ZONE,
+    notes.embedding::VECTOR(768),
+    (1 - (notes.embedding <=> query_embedding))::FLOAT AS similarity
   FROM notes
   WHERE 1 - (notes.embedding <=> query_embedding) > match_threshold
   ORDER BY notes.embedding <=> query_embedding
   LIMIT match_count;
-END;
 $$;
