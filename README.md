@@ -1,36 +1,75 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Synapse: AI-Powered Second Brain
 
-## Getting Started
+**Synapse** is a visual knowledge management system that uses AI (Vector Embeddings) to automatically organize and connect your thoughts.
 
-First, run the development server:
+![Synapse Screenshot](public/screenshot.png)
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+## 🚀 Features
+
+*   **Brain Dump:** Capture thoughts instantly.
+*   **AI Auto-Linking:** Automatically connects related notes using cosine similarity search.
+*   **Knowledge Graph:** Visualize your ideas as a 2D/3D interactive network.
+*   **Semantic Search:** Find notes by meaning, not just keywords (e.g., search "food" to find "pizza").
+*   **Full CRUD:** Create, Read, Update, Delete functionality.
+*   **Dark/Light Mode:** Beautiful, accessible UI.
+
+## 🛠️ Tech Stack
+
+*   **Frontend:** Next.js 15 (App Router), React, TypeScript
+*   **Styling:** Tailwind CSS, Shadcn UI
+*   **Backend:** Supabase (PostgreSQL)
+*   **AI Engine:** 
+    *   **Embeddings:** Ollama (nomic-embed-text) / OpenAI (Ready)
+    *   **Vector DB:** pgvector extension
+*   **Visualization:** react-force-graph
+
+## 🏗️ Architecture
+
+### Database Schema (Supabase)
+
+```sql
+-- Notes Table
+create table notes (
+  id bigint primary key generated always as identity,
+  content text not null,
+  created_at timestamptz default now(),
+  embedding vector(768) -- Stores AI semantic vector
+);
+
+-- Vector Search Function
+create or replace function match_notes (...)
+returns table (id bigint, content text, similarity float)
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### Data Flow
+1.  User inputs text -> Server Action `createNote`
+2.  Text sent to AI Model -> Returns `vector[768]`
+3.  Text + Vector saved to Postgres.
+4.  Frontend fetches notes + edges (calculated via K-Nearest Neighbors).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## 🏃‍♂️ Getting Started
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+1.  **Clone the repo**
+    ```bash
+    git clone https://github.com/yourusername/synapse.git
+    ```
 
-## Learn More
+2.  **Install dependencies**
+    ```bash
+    npm install
+    ```
 
-To learn more about Next.js, take a look at the following resources:
+3.  **Setup Environment**
+    Create `.env.local`:
+    ```env
+    NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
+    NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_key
+    ```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+4.  **Run Development Server**
+    ```bash
+    npm run dev
+    ```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## 📄 License
+MIT License. Created by **Diwan Malla**.
