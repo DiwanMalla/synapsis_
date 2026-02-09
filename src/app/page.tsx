@@ -2,11 +2,8 @@
 
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Card, CardContent } from "@/components/ui/card";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Input } from "@/components/ui/input";
 import {
-  Sparkles,
   Send,
   Loader2,
   Search,
@@ -15,8 +12,12 @@ import {
   Trash2,
   X,
   Check,
+  Zap,
+  Network,
+  Plus,
+  Command,
 } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   createNote,
   getNotes,
@@ -45,6 +46,10 @@ export default function Home() {
   const [isUpdating, setIsUpdating] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
+  // UI state
+  const [showInput, setShowInput] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
   // Fetch notes on mount
   useEffect(() => {
     let mounted = true;
@@ -62,6 +67,13 @@ export default function Home() {
     };
   }, []);
 
+  // Auto-focus textarea when input panel opens
+  useEffect(() => {
+    if (showInput && textareaRef.current) {
+      textareaRef.current.focus();
+    }
+  }, [showInput]);
+
   // Handle form submission
   const handleSubmit = async () => {
     if (!content.trim()) return;
@@ -71,6 +83,7 @@ export default function Home() {
     if (result.success && result.note) {
       setNotes((prev) => [result.note!, ...prev]);
       setContent("");
+      setShowInput(false);
     }
     setIsLoading(false);
   };
@@ -80,6 +93,9 @@ export default function Home() {
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
       handleSubmit();
     }
+    if (e.key === "Escape") {
+      setShowInput(false);
+    }
   };
 
   // Format relative time
@@ -87,17 +103,15 @@ export default function Home() {
     if (!dateString) return "";
     const date = new Date(dateString);
     const now = new Date();
-    // Ensure valid date
     if (isNaN(date.getTime())) return "";
 
     const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
 
-    if (diffInSeconds < 60) return "Just now";
-    if (diffInSeconds < 3600)
-      return `${Math.floor(diffInSeconds / 60)} mins ago`;
+    if (diffInSeconds < 60) return "just now";
+    if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)}m ago`;
     if (diffInSeconds < 86400)
-      return `${Math.floor(diffInSeconds / 3600)} hours ago`;
-    return `${Math.floor(diffInSeconds / 86400)} days ago`;
+      return `${Math.floor(diffInSeconds / 3600)}h ago`;
+    return `${Math.floor(diffInSeconds / 86400)}d ago`;
   };
 
   // Handle semantic search
@@ -117,33 +131,31 @@ export default function Home() {
     setIsSearching(false);
   };
 
-  // Handle search on Enter key
   const handleSearchKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter") {
       handleSearch();
     }
+    if (e.key === "Escape") {
+      clearSearch();
+    }
   };
 
-  // Clear search and show all notes
   const clearSearch = () => {
     setSearchQuery("");
     setSearchResults([]);
     setShowSearch(false);
   };
 
-  // Start editing a note
   const startEdit = (note: Note) => {
     setEditingId(note.id);
     setEditContent(note.content);
   };
 
-  // Cancel editing
   const cancelEdit = () => {
     setEditingId(null);
     setEditContent("");
   };
 
-  // Save edited note
   const handleUpdate = async () => {
     if (!editingId || !editContent.trim()) return;
 
@@ -159,7 +171,6 @@ export default function Home() {
     setIsUpdating(false);
   };
 
-  // Delete a note
   const handleDelete = async (id: string) => {
     setDeletingId(id);
     const result = await deleteNote(id);
@@ -169,244 +180,274 @@ export default function Home() {
     setDeletingId(null);
   };
 
+  const displayedNotes = showSearch ? searchResults : notes;
+
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center bg-zinc-950 p-4 text-zinc-100">
-      {/* 1. Header Section */}
-      <div className="mb-8 text-center space-y-2">
-        <h1 className="text-4xl font-bold tracking-tighter sm:text-5xl flex items-center justify-center gap-3">
-          <Sparkles className="w-8 h-8 text-purple-500" />
-          Synapse
-        </h1>
-        <p className="text-zinc-400">Your second brain. Connected by AI.</p>
-      </div>
+    <main className="mesh-bg noise-overlay h-screen w-screen overflow-hidden text-zinc-100 flex flex-col">
+      {/* ── Top Bar ── */}
+      <header className="flex items-center justify-between px-5 py-3 border-b border-white/[0.06] glass-panel z-20 shrink-0">
+        <div className="flex items-center gap-3">
+          <div className="relative">
+            <Zap className="w-5 h-5 text-purple-400" />
+            <div className="absolute inset-0 blur-md bg-purple-500/30 rounded-full" />
+          </div>
+          <h1 className="text-lg font-semibold tracking-tight gradient-text">
+            Synapse
+          </h1>
+          <span className="text-[10px] text-zinc-600 font-mono uppercase tracking-widest ml-1">
+            v0.1
+          </span>
+        </div>
 
-      {/* 2. The Input Nexus */}
-      <div className="w-full max-w-2xl space-y-8">
-        <Card className="border-zinc-800 bg-zinc-900/50 backdrop-blur-xl shadow-2xl">
-          <CardContent className="p-6 space-y-4">
-            <Textarea
-              placeholder="What's on your mind? (e.g., 'React 19 features', 'Grocery list', 'Startup idea...')"
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
-              onKeyDown={handleKeyDown}
-              disabled={isLoading}
-              className="min-h-30 resize-none bg-zinc-900 border-zinc-800 text-zinc-100 placeholder:text-zinc-400 focus-visible:ring-purple-500/50"
+        {/* Center: Search */}
+        <div className="flex-1 max-w-md mx-8">
+          <div className="relative group">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500 group-focus-within:text-purple-400 transition-colors" />
+            <Input
+              placeholder="Search your mind..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={handleSearchKeyDown}
+              className="pl-9 pr-20 h-8 text-xs bg-white/[0.03] border-white/[0.06] rounded-lg text-zinc-300 placeholder:text-zinc-600 focus-visible:ring-1 focus-visible:ring-purple-500/30 focus-visible:border-purple-500/30 transition-all"
             />
-            <div className="flex justify-between items-center">
-              <span className="text-xs text-zinc-500">
-                Press ⌘+Enter to save
-              </span>
-              <Button
-                onClick={handleSubmit}
-                disabled={isLoading || !content.trim()}
-                className="bg-purple-600 hover:bg-purple-700 text-white shadow-lg shadow-purple-900/20 disabled:opacity-50"
-              >
-                {isLoading ? (
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                ) : (
-                  <Send className="w-4 h-4 mr-2" />
-                )}
-                Capture Thought
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* 3. Semantic Search */}
-        <Card className="border-zinc-800 bg-zinc-900/50 backdrop-blur-xl">
-          <CardContent className="p-4 space-y-4">
-            <div className="flex items-center gap-2 mb-2">
-              <Brain className="w-4 h-4 text-purple-500" />
-              <span className="text-sm font-medium text-zinc-400">
-                AI Semantic Search
-              </span>
-              <span className="text-xs text-zinc-600">
-                Finds related concepts, not just keywords
-              </span>
-            </div>
-            <div className="flex gap-2">
-              <Input
-                placeholder="Search your thoughts... (e.g., 'productivity', 'coding', 'ideas')"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                onKeyDown={handleSearchKeyDown}
-                className="flex-1 bg-zinc-900 border-zinc-800 text-zinc-100 placeholder:text-zinc-500"
-              />
-              <Button
-                onClick={handleSearch}
-                disabled={isSearching || !searchQuery.trim()}
-                variant="outline"
-                className="border-zinc-700 hover:bg-zinc-800"
-              >
-                {isSearching ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Search className="w-4 h-4" />
-                )}
-              </Button>
+            <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
               {showSearch && (
-                <Button
+                <button
                   onClick={clearSearch}
-                  variant="ghost"
-                  className="text-zinc-500 hover:text-zinc-300"
+                  className="text-[10px] text-zinc-500 hover:text-zinc-300 px-1.5 py-0.5 rounded bg-white/[0.04] transition-colors"
                 >
                   Clear
-                </Button>
+                </button>
               )}
+              <button
+                onClick={handleSearch}
+                disabled={isSearching || !searchQuery.trim()}
+                className="flex items-center gap-1 text-[10px] text-zinc-500 hover:text-purple-400 px-1.5 py-0.5 rounded bg-white/[0.04] disabled:opacity-30 transition-colors"
+              >
+                {isSearching ? (
+                  <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                ) : (
+                  <Brain className="w-2.5 h-2.5" />
+                )}
+                AI
+              </button>
             </div>
+          </div>
+        </div>
 
-            {/* Search Results */}
-            {showSearch && (
-              <div className="space-y-2 pt-2 border-t border-zinc-800">
-                <p className="text-xs text-zinc-500">
-                  {isSearching
-                    ? "Searching with AI..."
-                    : `Found ${searchResults.length} related thoughts`}
-                </p>
-                <ScrollArea className="h-40 w-full">
-                  <div className="space-y-2">
-                    {searchResults.length === 0 && !isSearching ? (
-                      <p className="text-sm text-zinc-600 text-center py-4">
-                        No related thoughts found. Try different keywords!
-                      </p>
-                    ) : (
-                      searchResults.map((note) => (
-                        <div
-                          key={note.id}
-                          className="flex items-start gap-3 rounded-lg p-2 hover:bg-zinc-800/50 transition-colors"
-                        >
-                          <div className="h-2 w-2 mt-2 rounded-full bg-green-500/50" />
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm text-zinc-300 wrap-break-word">
-                              {note.content}
-                            </p>
-                            <span className="text-xs text-zinc-600">
-                              {getRelativeTime(note.created_at)}
-                            </span>
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </ScrollArea>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+        {/* Right: Stats + New */}
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 text-[10px] text-zinc-600 font-mono">
+            <span>{notes.length} thoughts</span>
+          </div>
+          <button
+            onClick={() => setShowInput(!showInput)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-600/80 hover:bg-purple-500/80 text-white text-xs font-medium transition-all hover:shadow-lg hover:shadow-purple-900/20 active:scale-95"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            New
+          </button>
+        </div>
+      </header>
 
-        {/* 4. Recent Thoughts */}
-        <div className="space-y-4">
-          <h2 className="text-sm font-medium text-zinc-500 uppercase tracking-widest">
-            Recent Activity ({notes.length})
-          </h2>
-          <ScrollArea className="h-50 w-full rounded-md border border-zinc-800 bg-zinc-900/20 p-4">
-            <div className="space-y-4">
-              {isFetching ? (
-                <div className="flex items-center justify-center py-8">
-                  <Loader2 className="w-5 h-5 text-zinc-500 animate-spin" />
+      {/* ── Main Content ── */}
+      <div className="flex flex-1 overflow-hidden">
+        {/* ── Left Panel: Notes ── */}
+        <aside className="w-[380px] shrink-0 border-r border-white/[0.06] flex flex-col overflow-hidden">
+          {/* Input Panel (collapsible) */}
+          {showInput && (
+            <div className="p-4 border-b border-white/[0.06] animate-fade-in-up glass-panel-light">
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-medium text-zinc-400 uppercase tracking-wider">
+                    Capture thought
+                  </span>
+                  <button
+                    onClick={() => setShowInput(false)}
+                    className="text-zinc-600 hover:text-zinc-400 transition-colors"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
                 </div>
-              ) : notes.length === 0 ? (
-                <p className="text-sm text-zinc-600 text-center py-8">
-                  No thoughts yet. Start by capturing your first idea above!
+                <Textarea
+                  ref={textareaRef}
+                  placeholder="What's on your mind?"
+                  value={content}
+                  onChange={(e) => setContent(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  disabled={isLoading}
+                  className="min-h-[100px] resize-none bg-white/[0.02] border-white/[0.06] text-zinc-200 text-sm placeholder:text-zinc-600 focus-visible:ring-1 focus-visible:ring-purple-500/30 rounded-lg"
+                />
+                <div className="flex justify-between items-center">
+                  <span className="text-[10px] text-zinc-600 flex items-center gap-1">
+                    <Command className="w-2.5 h-2.5" /> + Enter to save
+                  </span>
+                  <Button
+                    onClick={handleSubmit}
+                    disabled={isLoading || !content.trim()}
+                    size="sm"
+                    className="bg-purple-600/80 hover:bg-purple-500 text-white text-xs h-7 px-3 rounded-lg disabled:opacity-30 transition-all"
+                  >
+                    {isLoading ? (
+                      <Loader2 className="w-3 h-3 mr-1.5 animate-spin" />
+                    ) : (
+                      <Send className="w-3 h-3 mr-1.5" />
+                    )}
+                    Save
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Search results header */}
+          {showSearch && (
+            <div className="px-4 py-2.5 border-b border-white/[0.06] flex items-center justify-between">
+              <span className="text-[10px] text-zinc-500 font-mono">
+                {isSearching
+                  ? "Searching..."
+                  : `${searchResults.length} results found`}
+              </span>
+              <button
+                onClick={clearSearch}
+                className="text-[10px] text-purple-400/60 hover:text-purple-400 transition-colors"
+              >
+                Show all
+              </button>
+            </div>
+          )}
+
+          {/* Notes list header */}
+          {!showSearch && (
+            <div className="px-4 py-2.5 border-b border-white/[0.06] flex items-center justify-between shrink-0">
+              <span className="text-[10px] font-medium text-zinc-500 uppercase tracking-wider">
+                Recent
+              </span>
+              <span className="text-[10px] text-zinc-700 font-mono">
+                {notes.length}
+              </span>
+            </div>
+          )}
+
+          {/* Notes list */}
+          <div className="flex-1 overflow-y-auto custom-scrollbar">
+            {isFetching ? (
+              <div className="flex items-center justify-center py-16">
+                <div className="flex flex-col items-center gap-3">
+                  <Loader2 className="w-4 h-4 text-zinc-600 animate-spin" />
+                  <span className="text-[10px] text-zinc-700">
+                    Loading thoughts...
+                  </span>
+                </div>
+              </div>
+            ) : displayedNotes.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-16 px-6 text-center">
+                <div className="w-10 h-10 rounded-xl bg-white/[0.03] flex items-center justify-center mb-3">
+                  <Brain className="w-5 h-5 text-zinc-700" />
+                </div>
+                <p className="text-xs text-zinc-600 mb-1">
+                  {showSearch ? "No matches found" : "No thoughts yet"}
                 </p>
-              ) : (
-                notes.map((note) => (
+                <p className="text-[10px] text-zinc-700">
+                  {showSearch
+                    ? "Try different keywords"
+                    : "Capture your first idea to get started"}
+                </p>
+              </div>
+            ) : (
+              <div className="py-1">
+                {displayedNotes.map((note, index) => (
                   <div
                     key={note.id}
-                    className="flex items-start gap-4 rounded-lg p-3 hover:bg-zinc-800/50 transition-colors group"
+                    className="note-card px-4 py-3 border-b border-white/[0.03] group"
+                    style={{ animationDelay: `${index * 30}ms` }}
                   >
-                    <div className="h-2 w-2 mt-2 rounded-full bg-purple-500/50 group-hover:bg-purple-400" />
-                    <div className="flex-1 min-w-0">
-                      {editingId === note.id ? (
-                        // Edit mode
-                        <div className="space-y-2">
-                          <Textarea
-                            value={editContent}
-                            onChange={(e) => setEditContent(e.target.value)}
-                            className="min-h-20 resize-none bg-zinc-900 border-zinc-700 text-zinc-100 text-sm"
-                          />
-                          <div className="flex gap-2">
-                            <Button
-                              size="sm"
-                              onClick={handleUpdate}
-                              disabled={isUpdating}
-                              className="bg-green-600 hover:bg-green-700"
+                    {editingId === note.id ? (
+                      /* Edit mode */
+                      <div className="space-y-2 animate-fade-in-up">
+                        <Textarea
+                          value={editContent}
+                          onChange={(e) => setEditContent(e.target.value)}
+                          className="min-h-[72px] resize-none bg-white/[0.03] border-white/[0.08] text-zinc-200 text-sm rounded-lg focus-visible:ring-1 focus-visible:ring-purple-500/30"
+                        />
+                        <div className="flex gap-1.5">
+                          <button
+                            onClick={handleUpdate}
+                            disabled={isUpdating}
+                            className="flex items-center gap-1 text-[10px] text-emerald-400 hover:text-emerald-300 px-2 py-1 rounded-md bg-emerald-500/10 transition-colors"
+                          >
+                            {isUpdating ? (
+                              <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                            ) : (
+                              <Check className="w-2.5 h-2.5" />
+                            )}
+                            Save
+                          </button>
+                          <button
+                            onClick={cancelEdit}
+                            className="flex items-center gap-1 text-[10px] text-zinc-500 hover:text-zinc-300 px-2 py-1 rounded-md bg-white/[0.03] transition-colors"
+                          >
+                            <X className="w-2.5 h-2.5" />
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      /* View mode */
+                      <>
+                        <p className="text-[13px] text-zinc-300 leading-relaxed break-words">
+                          {note.content}
+                        </p>
+                        <div className="flex items-center justify-between mt-2">
+                          <span className="text-[10px] text-zinc-700 font-mono">
+                            {getRelativeTime(note.created_at)}
+                          </span>
+                          <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button
+                              onClick={() => startEdit(note)}
+                              className="p-1.5 rounded-md text-zinc-600 hover:text-zinc-300 hover:bg-white/[0.04] transition-all"
                             >
-                              {isUpdating ? (
+                              <Pencil className="w-3 h-3" />
+                            </button>
+                            <button
+                              onClick={() => handleDelete(note.id)}
+                              disabled={deletingId === note.id}
+                              className="p-1.5 rounded-md text-zinc-600 hover:text-red-400 hover:bg-red-500/10 transition-all"
+                            >
+                              {deletingId === note.id ? (
                                 <Loader2 className="w-3 h-3 animate-spin" />
                               ) : (
-                                <Check className="w-3 h-3" />
+                                <Trash2 className="w-3 h-3" />
                               )}
-                              Save
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={cancelEdit}
-                              className="text-zinc-400"
-                            >
-                              <X className="w-3 h-3" />
-                              Cancel
-                            </Button>
+                            </button>
                           </div>
                         </div>
-                      ) : (
-                        // View mode
-                        <>
-                          <p className="text-sm text-zinc-300 leading-relaxed wrap-break-word">
-                            {note.content}
-                          </p>
-                          <div className="flex items-center justify-between mt-1">
-                            <span className="text-xs text-zinc-600">
-                              {getRelativeTime(note.created_at)}
-                            </span>
-                            <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => startEdit(note)}
-                                className="h-6 w-6 p-0 text-zinc-500 hover:text-zinc-300"
-                              >
-                                <Pencil className="w-3 h-3" />
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => handleDelete(note.id)}
-                                disabled={deletingId === note.id}
-                                className="h-6 w-6 p-0 text-zinc-500 hover:text-red-400"
-                              >
-                                {deletingId === note.id ? (
-                                  <Loader2 className="w-3 h-3 animate-spin" />
-                                ) : (
-                                  <Trash2 className="w-3 h-3" />
-                                )}
-                              </Button>
-                            </div>
-                          </div>
-                        </>
-                      )}
-                    </div>
+                      </>
+                    )}
                   </div>
-                ))
-              )}
-            </div>
-          </ScrollArea>
-        </div>
-
-        {/* 5. Knowledge Graph Visualization */}
-        <div className="space-y-4">
-          <div className="flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-purple-500" />
-            <h2 className="text-sm font-medium text-zinc-500 uppercase tracking-widest">
-              Knowledge Graph
-            </h2>
-            <span className="text-xs text-zinc-600">
-              Visual connections between your thoughts
-            </span>
+                ))}
+              </div>
+            )}
           </div>
-          <KnowledgeGraph />
-        </div>
+        </aside>
+
+        {/* ── Right Panel: Knowledge Graph ── */}
+        <section className="flex-1 flex flex-col overflow-hidden relative">
+          {/* Graph label */}
+          <div className="absolute top-4 left-5 z-10 flex items-center gap-2">
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg glass-panel">
+              <Network className="w-3.5 h-3.5 text-purple-400/70" />
+              <span className="text-[10px] font-medium text-zinc-400 uppercase tracking-wider">
+                Knowledge Graph
+              </span>
+            </div>
+          </div>
+
+          {/* Graph visualization */}
+          <div className="flex-1">
+            <KnowledgeGraph />
+          </div>
+        </section>
       </div>
     </main>
   );

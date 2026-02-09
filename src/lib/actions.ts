@@ -250,7 +250,7 @@ export async function getGraphData(): Promise<{
 
     // Find edges by calculating similarity between all note pairs
     const edges: { source: string; target: string; value: number }[] = [];
-    const threshold = 0.4; // Minimum similarity for edge
+    const threshold = 0.15; // Lower threshold for short/food notes
 
     for (let i = 0; i < notes.length; i++) {
       for (let j = i + 1; j < notes.length; j++) {
@@ -272,17 +272,38 @@ export async function getGraphData(): Promise<{
       }
     }
 
-    // Limit edges per node to keep graph clean (max 3 edges per node)
-    const nodeEdgeCount: Record<string, number> = {};
-    const limitedEdges = edges
-      .sort((a, b) => b.value - a.value)
-      .filter((edge) => {
-        nodeEdgeCount[edge.source] = (nodeEdgeCount[edge.source] || 0) + 1;
-        nodeEdgeCount[edge.target] = (nodeEdgeCount[edge.target] || 0) + 1;
-        return (
-          nodeEdgeCount[edge.source] <= 3 && nodeEdgeCount[edge.target] <= 3
-        );
-      });
+    // Always connect each node to its top 2 most similar nodes
+    // Group edges by source
+    const edgesBySource: Record<string, { target: string; value: number }[]> = {};
+    edges.forEach(edge => {
+      if (!edgesBySource[edge.source]) edgesBySource[edge.source] = [];
+      if (!edgesBySource[edge.target]) edgesBySource[edge.target] = [];
+      edgesBySource[edge.source].push({ target: edge.target, value: edge.value });
+      edgesBySource[edge.target].push({ target: edge.source, value: edge.value });
+    });
+
+    // Build final edges - take top 3 connections per node
+    const finalEdges: { source: string; target: string; value: number }[] = [];
+    const addedPairs = new Set<string>();
+
+    Object.entries(edgesBySource).forEach(([sourceId, connections]) => {
+      connections
+        .sort((a, b) => b.value - a.value)
+        .slice(0, 3)
+        .forEach(conn => {
+          const pairKey = [sourceId, conn.target].sort().join('-');
+          if (!addedPairs.has(pairKey)) {
+            addedPairs.add(pairKey);
+            finalEdges.push({
+              source: sourceId,
+              target: conn.target,
+              value: conn.value,
+            });
+          }
+        });
+    });
+
+    const limitedEdges = finalEdges;
 
     return { success: true, nodes, edges: limitedEdges };
   } catch (err) {
