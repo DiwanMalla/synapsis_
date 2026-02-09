@@ -160,7 +160,11 @@ export async function deleteNote(
 export async function getRelatedNotes(
   noteId: string,
   limit: number = 3,
-): Promise<{ success: boolean; related?: { id: string; content: string; similarity: number }[]; error?: string }> {
+): Promise<{
+  success: boolean;
+  related?: { id: string; content: string; similarity: number }[];
+  error?: string;
+}> {
   try {
     const supabase = await createClient();
 
@@ -241,29 +245,48 @@ export async function getGraphData(): Promise<{
         note.content.length > 50
           ? note.content.substring(0, 50) + "..."
           : note.content,
-      val: 1, 
+      val: 1,
     }));
 
     // DEBUG: Calculate ALL similarities to see what's going on
     const edges: { source: string; target: string; value: number }[] = [];
-    
+
     // STRATEGY: "K-Nearest Neighbors" (KNN)
     // For every node, find its top 2 closest friends, regardless of threshold.
     // This guarantees connections.
-    
-    for (let i = 0; i < notes.length; i++) {
-      const noteA = notes[i];
-      if (!noteA.embedding) continue;
 
-      const potentialMatches: { target: string; value: number; content: string }[] = [];
+    // Pre-parse all embeddings
+    const parsedNotes = notes
+      .map((note) => ({
+        ...note,
+        parsedEmbedding: parseEmbedding(note.embedding),
+      }))
+      .filter((note) => note.parsedEmbedding !== null);
 
-      for (let j = 0; j < notes.length; j++) {
+    debugLog.push(`Found ${parsedNotes.length} notes with valid embeddings.`);
+
+    for (let i = 0; i < parsedNotes.length; i++) {
+      const noteA = parsedNotes[i];
+
+      const potentialMatches: {
+        target: string;
+        value: number;
+        content: string;
+      }[] = [];
+
+      for (let j = 0; j < parsedNotes.length; j++) {
         if (i === j) continue; // Don't connect to self
-        const noteB = notes[j];
-        if (!noteB.embedding) continue;
+        const noteB = parsedNotes[j];
 
-        const sim = cosineSimilarity(noteA.embedding, noteB.embedding);
-        potentialMatches.push({ target: noteB.id, value: sim, content: noteB.content.substring(0, 20) });
+        const sim = cosineSimilarity(
+          noteA.parsedEmbedding,
+          noteB.parsedEmbedding,
+        );
+        potentialMatches.push({
+          target: noteB.id,
+          value: sim,
+          content: noteB.content.substring(0, 20),
+        });
       }
 
       // Sort by similarity (Highest first)
@@ -271,15 +294,17 @@ export async function getGraphData(): Promise<{
 
       // Take Top 2
       const topMatches = potentialMatches.slice(0, 2);
-      
+
       // Add to edges
-      topMatches.forEach(match => {
+      topMatches.forEach((match) => {
         edges.push({
           source: noteA.id,
           target: match.target,
-          value: match.value
+          value: match.value,
         });
-        debugLog.push(`Node "${noteA.content.substring(0, 15)}" connected to "${match.content}" (Sim: ${match.value.toFixed(4)})`);
+        debugLog.push(
+          `Node "${noteA.content.substring(0, 15)}" -> "${match.content}" (${match.value.toFixed(3)})`,
+        );
       });
     }
 
@@ -287,7 +312,7 @@ export async function getGraphData(): Promise<{
     const uniqueEdges: { source: string; target: string; value: number }[] = [];
     const pairSet = new Set<string>();
 
-    edges.forEach(edge => {
+    edges.forEach((edge) => {
       const key = [edge.source, edge.target].sort().join("-");
       if (!pairSet.has(key)) {
         pairSet.add(key);
@@ -305,18 +330,71 @@ export async function getGraphData(): Promise<{
 }
 
 /**
+ * Parse embedding from various formats (string, array, etc.)
+ */
+function parseEmbedding(embedding: unknown): number[] | null {
+  if (!embedding) return null;
+
+  // If it's already an array, return it
+  if (Array.isArray(embedding)) {
+    return embedding.map(Number);
+  }
+
+  // If it's a string (PostgreSQL vector format), parse it
+  if (typeof embedding === "string") {
+    // Remove brackets and split by comma
+    const cleaned = embedding.replace(/[\[\]{}]/g, "");
+    return cleaned
+      .split(",")
+      .map((s) => parseFloat(s.trim()))
+      .filter((n) => !isNaN(n));
+  }
+
+  // If it's an object with array-like properties
+  if (typeof embedding === "object") {
+    const values = Object.values(embedding as Record<string, unknown>);
+    if (values.length > 0) {
+      return values.map(Number).filter((n) => !isNaN(n));
+    }
+  }
+
+  return null;
+}
+
+/**
  * Calculate cosine similarity between two vectors
  */
-function cosineSimilarity(a: number[], b: number[]): number {
+function cosineSimilarity(a: unknown, b: unknown): number {
+  const vecA = parseEmbedding(a);
+  const vecB = parseEmbedding(b);
+
+  if (!vecA || !vecB || vecA.length === 0 || vecB.length === 0) {
+    console.log("Invalid vectors:", {
+      a: typeof a,
+      b: typeof b,
+      vecALen: vecA?.length,
+      vecBLen: vecB?.length,
+    });
+    return 0;
+  }
+
+  if (vecA.length !== vecB.length) {
+    console.log("Vector length mismatch:", vecA.length, "vs", vecB.length);
+    return 0;
+  }
+
   let dotProduct = 0;
   let normA = 0;
   let normB = 0;
 
-  for (let i = 0; i < a.length; i++) {
-    dotProduct += a[i] * b[i];
-    normA += a[i] * a[i];
-    normB += b[i] * b[i];
+  for (let i = 0; i < vecA.length; i++) {
+    dotProduct += vecA[i] * vecB[i];
+    normA += vecA[i] * vecA[i];
+    normB += vecB[i] * vecB[i];
   }
 
-  return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+  const denom = Math.sqrt(normA) * Math.sqrt(normB);
+  if (denom === 0) return 0;
+
+  return dotProduct / denom;
 }

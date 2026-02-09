@@ -4,9 +4,9 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Sparkles, Send, Loader2 } from "lucide-react";
+import { Sparkles, Send, Loader2, Trash2 } from "lucide-react";
 import { useState, useEffect, useCallback } from "react";
-import { createNote, getNotes } from "@/lib/actions";
+import { createNote, getNotes, deleteNote } from "@/lib/actions";
 import type { Note } from "@/lib/supabase";
 import KnowledgeGraph from "@/components/KnowledgeGraph";
 import { ModeToggle } from "@/components/mode-toggle";
@@ -16,6 +16,7 @@ export default function Home() {
   const [notes, setNotes] = useState<Note[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isFetching, setIsFetching] = useState(true);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
 
   // Fetch notes on mount
   useEffect(() => {
@@ -45,6 +46,16 @@ export default function Home() {
       setContent("");
     }
     setIsLoading(false);
+  };
+
+  // Handle delete
+  const handleDelete = async (id: number) => {
+    setDeletingId(id);
+    const result = await deleteNote(id.toString());
+    if (result.success) {
+      setNotes((prev) => prev.filter((n) => n.id !== id));
+    }
+    setDeletingId(null);
   };
 
   // Handle keyboard shortcut (Cmd+Enter)
@@ -140,9 +151,9 @@ export default function Home() {
                   notes.map((note) => (
                     <div
                       key={note.id}
-                      className="flex items-start gap-4 rounded-lg p-3 hover:bg-accent/50 transition-colors cursor-pointer group"
+                      className="flex items-start gap-4 rounded-lg p-3 hover:bg-accent/50 transition-colors group relative pr-12"
                     >
-                      <div className="h-2 w-2 mt-2 rounded-full bg-purple-500/50 group-hover:bg-purple-400" />
+                      <div className="h-2 w-2 mt-2 rounded-full bg-purple-500/50 group-hover:bg-purple-400 shrink-0" />
                       <div className="flex-1 min-w-0">
                         <p className="text-sm text-foreground leading-relaxed wrap-break-word">
                           {note.content}
@@ -151,6 +162,23 @@ export default function Home() {
                           {getRelativeTime(note.created_at)}
                         </span>
                       </div>
+                      
+                      {/* Delete Button - Appears on Hover */}
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDelete(note.id);
+                        }}
+                        className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-destructive/20 hover:text-destructive h-8 w-8"
+                      >
+                        {deletingId === note.id ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <Trash2 className="w-4 h-4" />
+                        )}
+                      </Button>
                     </div>
                   ))
                 )}
