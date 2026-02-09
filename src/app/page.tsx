@@ -5,10 +5,27 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Input } from "@/components/ui/input";
-import { Sparkles, Send, Loader2, Search, Brain, Pencil, Trash2, X, Check } from "lucide-react";
+import {
+  Sparkles,
+  Send,
+  Loader2,
+  Search,
+  Brain,
+  Pencil,
+  Trash2,
+  X,
+  Check,
+} from "lucide-react";
 import { useState, useEffect } from "react";
-import { createNote, getNotes, searchNotes, updateNote, deleteNote } from "@/lib/actions";
+import {
+  createNote,
+  getNotes,
+  searchNotes,
+  updateNote,
+  deleteNote,
+} from "@/lib/actions";
 import type { Note } from "@/lib/supabase";
+import KnowledgeGraph from "@/components/KnowledgeGraph";
 
 export default function Home() {
   const [content, setContent] = useState("");
@@ -72,7 +89,7 @@ export default function Home() {
     const now = new Date();
     // Ensure valid date
     if (isNaN(date.getTime())) return "";
-    
+
     const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
 
     if (diffInSeconds < 60) return "Just now";
@@ -134,7 +151,7 @@ export default function Home() {
     const result = await updateNote(editingId, editContent);
     if (result.success && result.note) {
       setNotes((prev) =>
-        prev.map((n) => (n.id === editingId ? result.note! : n))
+        prev.map((n) => (n.id === editingId ? result.note! : n)),
       );
       setEditingId(null);
       setEditContent("");
@@ -375,6 +392,20 @@ export default function Home() {
               )}
             </div>
           </ScrollArea>
+        </div>
+
+        {/* 5. Knowledge Graph Visualization */}
+        <div className="space-y-4">
+          <div className="flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-purple-500" />
+            <h2 className="text-sm font-medium text-zinc-500 uppercase tracking-widest">
+              Knowledge Graph
+            </h2>
+            <span className="text-xs text-zinc-600">
+              Visual connections between your thoughts
+            </span>
+          </div>
+          <KnowledgeGraph />
         </div>
       </div>
     </main>

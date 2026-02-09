@@ -155,3 +155,155 @@ export async function deleteNote(
     return { success: false, error: "Failed to delete note" };
   }
 }
+
+/**
+ * Get related notes for a specific note (for graph edges)
+ * Finds the top N most similar notes using vector similarity
+ */
+export async function getRelatedNotes(
+  noteId: string,
+  limit: number = 3,
+): Promise<{
+  success: boolean;
+  related?: { id: string; content: string; similarity: number }[];
+  error?: string;
+}> {
+  try {
+    const supabase = await createClient();
+
+    // First, get the embedding of the source note
+    const { data: noteData, error: noteError } = await supabase
+      .from("notes")
+      .select("embedding")
+      .eq("id", noteId)
+      .single();
+
+    if (noteError || !noteData?.embedding) {
+      return { success: false, error: "Note not found or has no embedding" };
+    }
+
+    // Find similar notes excluding the source note
+    const { data, error } = await supabase.rpc("match_notes", {
+      query_embedding: noteData.embedding,
+      match_threshold: 0.3,
+      match_count: limit + 1, // Get one extra in case the source note is returned
+    });
+
+    if (error) {
+      console.error("Error finding related notes:", error);
+      return { success: false, error: error.message };
+    }
+
+    // Filter out the source note and map to simplified format
+    const related = (data || [])
+      .filter((n: Note) => n.id !== noteId)
+      .slice(0, limit)
+      .map((n: Note) => ({
+        id: n.id,
+        content: n.content,
+        similarity: n.similarity || 0,
+      }));
+
+    return { success: true, related };
+  } catch (err) {
+    console.error("Unexpected error:", err);
+    return { success: false, error: "Failed to get related notes" };
+  }
+}
+
+/**
+ * Get all notes with their relationships (for graph visualization)
+ * Returns nodes and edges for the entire knowledge graph
+ */
+export async function getGraphData(): Promise<{
+  success: boolean;
+  nodes?: { id: string; content: string; val: number }[];
+  edges?: { source: string; target: string; value: number }[];
+  error?: string;
+}> {
+  try {
+    const supabase = await createClient();
+
+    // Get all notes
+    const { data: notes, error: notesError } = await supabase
+      .from("notes")
+      .select("id, content, embedding");
+
+    if (notesError) {
+      console.error("Error fetching notes for graph:", notesError);
+      return { success: false, error: notesError.message };
+    }
+
+    if (!notes || notes.length === 0) {
+      return { success: true, nodes: [], edges: [] };
+    }
+
+    // Create nodes
+    const nodes = notes.map((note) => ({
+      id: note.id,
+      content:
+        note.content.length > 50
+          ? note.content.substring(0, 50) + "..."
+          : note.content,
+      val: 1, // Node size
+    }));
+
+    // Find edges by calculating similarity between all note pairs
+    const edges: { source: string; target: string; value: number }[] = [];
+    const threshold = 0.4; // Minimum similarity for edge
+
+    for (let i = 0; i < notes.length; i++) {
+      for (let j = i + 1; j < notes.length; j++) {
+        const noteA = notes[i];
+        const noteB = notes[j];
+
+        if (!noteA.embedding || !noteB.embedding) continue;
+
+        // Calculate cosine similarity
+        const similarity = cosineSimilarity(noteA.embedding, noteB.embedding);
+
+        if (similarity > threshold) {
+          edges.push({
+            source: noteA.id,
+            target: noteB.id,
+            value: similarity,
+          });
+        }
+      }
+    }
+
+    // Limit edges per node to keep graph clean (max 3 edges per node)
+    const nodeEdgeCount: Record<string, number> = {};
+    const limitedEdges = edges
+      .sort((a, b) => b.value - a.value)
+      .filter((edge) => {
+        nodeEdgeCount[edge.source] = (nodeEdgeCount[edge.source] || 0) + 1;
+        nodeEdgeCount[edge.target] = (nodeEdgeCount[edge.target] || 0) + 1;
+        return (
+          nodeEdgeCount[edge.source] <= 3 && nodeEdgeCount[edge.target] <= 3
+        );
+      });
+
+    return { success: true, nodes, edges: limitedEdges };
+  } catch (err) {
+    console.error("Unexpected error:", err);
+    return { success: false, error: "Failed to get graph data" };
+  }
+}
+
+/**
+ * Calculate cosine similarity between two vectors
+ */
+function cosineSimilarity(a: number[], b: number[]): number {
+  let dotProduct = 0;
+  let normA = 0;
+  let normB = 0;
+
+  for (let i = 0; i < a.length; i++) {
+    dotProduct += a[i] * b[i];
+    normA += a[i] * a[i];
+    normB += b[i] * b[i];
+  }
+
+  return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+}
