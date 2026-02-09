@@ -11,7 +11,7 @@ export async function createNote(
   content: string,
 ): Promise<{ success: boolean; note?: Note; error?: string }> {
   try {
-    const supabase = await createClient(); // Await the server client
+    const supabase = await createClient();
 
     // Generate embedding using Ollama (local, free)
     console.log("Generating embedding for note...");
@@ -46,7 +46,7 @@ export async function getNotes(): Promise<{
   error?: string;
 }> {
   try {
-    const supabase = await createClient(); // Await the server client
+    const supabase = await createClient();
 
     const { data, error } = await supabase
       .from("notes")
@@ -67,7 +67,6 @@ export async function getNotes(): Promise<{
 
 /**
  * Search notes using semantic similarity (vector search)
- * Finds notes related to the query even if keywords don't match
  */
 export async function searchNotes(
   query: string,
@@ -81,10 +80,9 @@ export async function searchNotes(
     const queryEmbedding = await generateEmbedding(query);
 
     // Perform cosine similarity search using pgvector
-    // The <=> operator calculates cosine distance (lower = more similar)
     const { data, error } = await supabase.rpc("match_notes", {
       query_embedding: queryEmbedding,
-      match_threshold: 0.5, // Minimum similarity score
+      match_threshold: 0.5,
       match_count: limit,
     });
 
@@ -158,16 +156,11 @@ export async function deleteNote(
 
 /**
  * Get related notes for a specific note (for graph edges)
- * Finds the top N most similar notes using vector similarity
  */
 export async function getRelatedNotes(
   noteId: string,
   limit: number = 3,
-): Promise<{
-  success: boolean;
-  related?: { id: string; content: string; similarity: number }[];
-  error?: string;
-}> {
+): Promise<{ success: boolean; related?: { id: string; content: string; similarity: number }[]; error?: string }> {
   try {
     const supabase = await createClient();
 
@@ -186,7 +179,7 @@ export async function getRelatedNotes(
     const { data, error } = await supabase.rpc("match_notes", {
       query_embedding: noteData.embedding,
       match_threshold: 0.3,
-      match_count: limit + 1, // Get one extra in case the source note is returned
+      match_count: limit + 1,
     });
 
     if (error) {
@@ -219,10 +212,12 @@ export async function getGraphData(): Promise<{
   success: boolean;
   nodes?: { id: string; content: string; val: number }[];
   edges?: { source: string; target: string; value: number }[];
+  debug?: string[];
   error?: string;
 }> {
   try {
     const supabase = await createClient();
+    const debugLog: string[] = [];
 
     // Get all notes
     const { data: notes, error: notesError } = await supabase
@@ -230,13 +225,14 @@ export async function getGraphData(): Promise<{
       .select("id, content, embedding");
 
     if (notesError) {
-      console.error("Error fetching notes for graph:", notesError);
       return { success: false, error: notesError.message };
     }
 
     if (!notes || notes.length === 0) {
       return { success: true, nodes: [], edges: [] };
     }
+
+    debugLog.push(`Fetched ${notes.length} notes.`);
 
     // Create nodes
     const nodes = notes.map((note) => ({
@@ -245,67 +241,63 @@ export async function getGraphData(): Promise<{
         note.content.length > 50
           ? note.content.substring(0, 50) + "..."
           : note.content,
-      val: 1, // Node size
+      val: 1, 
     }));
 
-    // Find edges by calculating similarity between all note pairs
+    // DEBUG: Calculate ALL similarities to see what's going on
     const edges: { source: string; target: string; value: number }[] = [];
-    const threshold = 0.15; // Lower threshold for short/food notes
-
+    
+    // STRATEGY: "K-Nearest Neighbors" (KNN)
+    // For every node, find its top 2 closest friends, regardless of threshold.
+    // This guarantees connections.
+    
     for (let i = 0; i < notes.length; i++) {
-      for (let j = i + 1; j < notes.length; j++) {
-        const noteA = notes[i];
+      const noteA = notes[i];
+      if (!noteA.embedding) continue;
+
+      const potentialMatches: { target: string; value: number; content: string }[] = [];
+
+      for (let j = 0; j < notes.length; j++) {
+        if (i === j) continue; // Don't connect to self
         const noteB = notes[j];
+        if (!noteB.embedding) continue;
 
-        if (!noteA.embedding || !noteB.embedding) continue;
-
-        // Calculate cosine similarity
-        const similarity = cosineSimilarity(noteA.embedding, noteB.embedding);
-
-        if (similarity > threshold) {
-          edges.push({
-            source: noteA.id,
-            target: noteB.id,
-            value: similarity,
-          });
-        }
+        const sim = cosineSimilarity(noteA.embedding, noteB.embedding);
+        potentialMatches.push({ target: noteB.id, value: sim, content: noteB.content.substring(0, 20) });
       }
+
+      // Sort by similarity (Highest first)
+      potentialMatches.sort((a, b) => b.value - a.value);
+
+      // Take Top 2
+      const topMatches = potentialMatches.slice(0, 2);
+      
+      // Add to edges
+      topMatches.forEach(match => {
+        edges.push({
+          source: noteA.id,
+          target: match.target,
+          value: match.value
+        });
+        debugLog.push(`Node "${noteA.content.substring(0, 15)}" connected to "${match.content}" (Sim: ${match.value.toFixed(4)})`);
+      });
     }
 
-    // Always connect each node to its top 2 most similar nodes
-    // Group edges by source
-    const edgesBySource: Record<string, { target: string; value: number }[]> = {};
+    // Deduplicate edges (A->B is same as B->A)
+    const uniqueEdges: { source: string; target: string; value: number }[] = [];
+    const pairSet = new Set<string>();
+
     edges.forEach(edge => {
-      if (!edgesBySource[edge.source]) edgesBySource[edge.source] = [];
-      if (!edgesBySource[edge.target]) edgesBySource[edge.target] = [];
-      edgesBySource[edge.source].push({ target: edge.target, value: edge.value });
-      edgesBySource[edge.target].push({ target: edge.source, value: edge.value });
+      const key = [edge.source, edge.target].sort().join("-");
+      if (!pairSet.has(key)) {
+        pairSet.add(key);
+        uniqueEdges.push(edge);
+      }
     });
 
-    // Build final edges - take top 3 connections per node
-    const finalEdges: { source: string; target: string; value: number }[] = [];
-    const addedPairs = new Set<string>();
+    console.log("Graph Debug:", debugLog); // Will print in server terminal
 
-    Object.entries(edgesBySource).forEach(([sourceId, connections]) => {
-      connections
-        .sort((a, b) => b.value - a.value)
-        .slice(0, 3)
-        .forEach(conn => {
-          const pairKey = [sourceId, conn.target].sort().join('-');
-          if (!addedPairs.has(pairKey)) {
-            addedPairs.add(pairKey);
-            finalEdges.push({
-              source: sourceId,
-              target: conn.target,
-              value: conn.value,
-            });
-          }
-        });
-    });
-
-    const limitedEdges = finalEdges;
-
-    return { success: true, nodes, edges: limitedEdges };
+    return { success: true, nodes, edges: uniqueEdges, debug: debugLog };
   } catch (err) {
     console.error("Unexpected error:", err);
     return { success: false, error: "Failed to get graph data" };
